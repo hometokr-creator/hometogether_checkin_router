@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MemberRole {
+  GUEST
+  HOST
+}
+
+enum ContractStatus {
+  PENDING
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum IdentityLinkStatus {
+  ACTIVE
+  REVOKED
+  CONFLICT
+}
+
+enum KakaoReachability {
+  NOT_LINKED
+  LINKED_NOT_FRIEND
+  FRIEND_ACTIVE
+  BLOCKED
+  DELIVERY_FAILED
+  UNKNOWN
+}
+
+enum LinkingTokenStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  REVOKED
+}
+
+model Household {
+  id          String          @id
+  members     Member[]
+  cycles      ContractCycle[]
+  links       ChannelIdentityLink[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  @@map("households")
+}
+
+model Member {
+  id          String          @id
+  householdId String          @map("household_id")
+  household   Household       @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  role        MemberRole
+  links       ChannelIdentityLink[]
+  tokens      ChannelLinkingToken[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  @@index([householdId])
+  @@map("members")
+}
+
+model ContractCycle {
+  id          String          @id
+  householdId String          @map("household_id")
+  household   Household       @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  status      ContractStatus
+  startsAt    DateTime        @map("starts_at")
+  endsAt      DateTime?       @map("ends_at")
+  links       ChannelIdentityLink[]
+  tokens      ChannelLinkingToken[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  @@index([householdId, status])
+  @@map("contract_cycles")
+}
+
+model ChannelIdentityLink {
+  id                 String             @id @default(cuid())
+  provider           String             @default("KAKAO")
+  providerUserKeyHash String            @map("provider_user_key_hash")
+  memberId           String             @map("member_id")
+  householdId        String             @map("household_id")
+  contractCycleId    String             @map("contract_cycle_id")
+  role               MemberRole
+  status             IdentityLinkStatus @default(ACTIVE)
+  reachability       KakaoReachability   @default(UNKNOWN)
+  verifiedAt         DateTime            @map("verified_at")
+  revokedAt          DateTime?           @map("revoked_at")
+  member             Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  household          Household           @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle      ContractCycle       @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  @@unique([provider, providerUserKeyHash, contractCycleId])
+  @@index([memberId, status])
+  @@index([householdId, contractCycleId, status])
+  @@map("channel_identity_links")
+}
+
+model ChannelLinkingToken {
+  id              String             @id @default(cuid())
+  tokenHash       String             @unique @map("token_hash")
+  memberId        String             @map("member_id")
+  contractCycleId String             @map("contract_cycle_id")
+  status          LinkingTokenStatus @default(ACTIVE)
+  expiresAt       DateTime           @map("expires_at")
+  usedAt          DateTime?          @map("used_at")
+  member          Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  contractCycle   ContractCycle      @relation(fields: [contractCycleId], references: [id], onDelete: Cascade)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  @@index([memberId, status, expiresAt])
+  @@map("channel_linking_tokens")
+}
+
+model ProviderEventReceipt {
+  id              String   @id @default(cuid())
+  provider        String
+  providerEventId String   @map("provider_event_id")
+  householdId     String?  @map("household_id")
+  eventType       String   @map("event_type")
+  receivedAt      DateTime @default(now()) @map("received_at")
+  @@unique([provider, providerEventId, eventType])
+  @@map("provider_event_receipts")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  event       String
+  actorId     String?  @map("actor_id")
+  householdId String?  @map("household_id")
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  payload     Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@index([householdId, createdAt])
+  @@index([entityType, entityId])
+  @@map("checkin_router_audit_logs")
+}
