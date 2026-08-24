@@ -15,6 +15,12 @@ export class PrismaInboundRepository {
     decision: RoutingDecision;
     sourceClauseIds?: string[];
     classificationSource?: "OPENAI" | "RULES" | "RULES_FALLBACK";
+    modelRun?: {
+      task: string; provider: string; model?: string; status: "SUCCEEDED" | "FAILED" | "FALLBACK";
+      promptTemplateKey: string; promptTemplateVersion: number; providerPromptId?: string;
+      providerPromptVersion?: string; providerResponseId?: string; inputHash: string;
+      output?: ClassificationResult; errorCode?: string; latencyMs?: number; inputTokens?: number; outputTokens?: number;
+    } | null;
     now?: Date;
   }) {
     const now = input.now ?? new Date();
@@ -52,6 +58,11 @@ export class PrismaInboundRepository {
           dueAt: calculateTicketDueAt(input.classification.urgency, now),
         },
       });
+      if (input.modelRun) {
+        await tx.modelRun.create({
+          data: { ...input.modelRun, issueId: issue.id },
+        });
+      }
       await tx.auditLog.create({
         data: {
           event: "INBOUND_ROUTED",

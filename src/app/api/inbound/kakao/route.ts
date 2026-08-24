@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
 
-    const { classification, source: classificationSource } = await classifyInboundWithFallback(payload.data.userRequest.utterance);
+    const { classification, source: classificationSource, modelRun } = await classifyInboundWithFallback(payload.data.userRequest.utterance);
     const grounding = await new PrismaContractClauseRepository(prisma).findGrounding(link.contractCycleId, classification.domain);
     const configuredThreshold = Number(process.env.CLASSIFICATION_CONFIDENCE_THRESHOLD ?? "0.8");
     const threshold = Number.isFinite(configuredThreshold) && configuredThreshold >= 0 && configuredThreshold <= 1
@@ -84,6 +84,7 @@ export async function POST(request: Request) {
       decision,
       sourceClauseIds: grounding.clause ? [grounding.clause.id] : [],
       classificationSource,
+      modelRun,
     });
 
     return Response.json(kakaoSimpleText(decision.route === "A" && grounding.clause ? groundedAnswer(grounding.clause) : HUMAN_REVIEW_MESSAGE));

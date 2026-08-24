@@ -84,6 +84,12 @@ enum ContractClauseStatus {
   RETIRED
 }
 
+enum ModelRunStatus {
+  SUCCEEDED
+  FAILED
+  FALLBACK
+}
+
 model Household {
   id          String          @id
   canonicalHomeId String?     @unique @db.Uuid @map("canonical_home_id")
@@ -207,12 +213,38 @@ model Issue {
   member             Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
   events             HouseholdEvent[]
   tickets            ActionTicket[]
+  modelRuns          ModelRun[]
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
   @@index([householdId, status, openedAt])
   @@index([contractCycleId, status])
   @@index([memberId, openedAt])
   @@map("issues")
+}
+
+model ModelRun {
+  id                    String         @id @default(cuid())
+  issueId               String?        @map("issue_id")
+  task                  String
+  provider              String
+  model                 String?
+  status                ModelRunStatus
+  promptTemplateKey     String         @map("prompt_template_key")
+  promptTemplateVersion Int            @map("prompt_template_version")
+  providerPromptId      String?        @map("provider_prompt_id")
+  providerPromptVersion String?        @map("provider_prompt_version")
+  providerResponseId    String?        @map("provider_response_id")
+  inputHash             String         @map("input_hash")
+  output                Json?
+  errorCode             String?        @map("error_code")
+  latencyMs             Int?           @map("latency_ms")
+  inputTokens           Int?           @map("input_tokens")
+  outputTokens          Int?           @map("output_tokens")
+  issue                 Issue?         @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  createdAt             DateTime       @default(now()) @map("created_at")
+  @@index([issueId, createdAt])
+  @@index([task, status, createdAt])
+  @@map("model_runs")
 }
 
 model ActionTicket {

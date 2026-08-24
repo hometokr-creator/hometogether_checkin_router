@@ -1,4 +1,5 @@
 import { classificationSchema, type ClassificationResult } from "@/modules/classification/schema";
+import { CLASSIFICATION_PROMPT } from "./classification-prompt";
 
 const classificationJsonSchema = {
   type: "object",
@@ -19,9 +20,34 @@ const classificationJsonSchema = {
   required: ["intent", "domain", "severity", "urgency", "direction", "interventionPreference", "distressSignal", "riskFlags", "confidence", "evidenceMessageIds", "reasonCodes"],
 } as const;
 
-type OpenAIResponse = { output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }> };
+type OpenAIResponse = {
+  id?: string;
+  model?: string;
+  output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
+};
 
-export async function classifyWithOpenAI(input: { utterance: string; apiKey: string; model: string; timeoutMs?: number }, fetchImpl: typeof fetch = fetch): Promise<ClassificationResult> {
+export type OpenAIClassificationRun = {
+  classification: ClassificationResult;
+  providerResponseId?: string;
+  model?: string;
+  latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
+export async function classifyWithOpenAI(input: {
+  utterance: string;
+  apiKey: string;
+  model: string;
+  promptId?: string;
+  promptVersion?: string;
+  timeoutMs?: number;
+}, fetchImpl: typeof fetch = fetch): Promise<OpenAIClassificationRun> {
+  const startedAt = Date.now();
+  const prompt = input.promptId
+    ? { prompt: { id: input.promptId, version: input.promptVersion || undefined, variables: { [CLASSIFICATION_PROMPT.variableName]: input.utterance } } }
+    : { instructions: CLASSIFICATION_PROMPT.instructions, input: input.utterance };
   const response = await fetchImpl("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Authorization": `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
@@ -29,8 +55,7 @@ export async function classifyWithOpenAI(input: { utterance: string; apiKey: str
     body: JSON.stringify({
       model: input.model,
       store: false,
-      instructions: "Classify one Korean residence-support message. Do not infer facts, fault, or contract status. Use KAKAO_CURRENT_MESSAGE as the only evidenceMessageIds value. Use NONE as the sole risk flag when no risk applies.",
-      input: input.utterance,
+      ...prompt,
       text: { format: { type: "json_schema", name: "residence_classification", strict: true, schema: classificationJsonSchema } },
       max_output_tokens: 500,
     }),
@@ -39,5 +64,12 @@ export async function classifyWithOpenAI(input: { utterance: string; apiKey: str
   const body = await response.json() as OpenAIResponse;
   const text = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
   if (!text) throw new Error("OPENAI_CLASSIFICATION_EMPTY");
-  return classificationSchema.parse(JSON.parse(text));
+  return {
+    classification: classificationSchema.parse(JSON.parse(text)),
+    providerResponseId: body.id,
+    model: body.model,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: body.usage?.input_tokens,
+    outputTokens: body.usage?.output_tokens,
+  };
 }
