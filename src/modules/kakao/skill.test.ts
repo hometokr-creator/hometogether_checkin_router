@@ -52,6 +52,12 @@ describe("Kakao skill adapter", () => {
     expect(extractLinkingToken(`연결 토큰 ${token}`)).toBe(token);
   });
 
+  it("accepts invisible copy characters and surrounding Kakao text", () => {
+    const token = "A".repeat(43);
+    expect(extractLinkingToken(`연결\u200B코드: ${token}\uFEFF`)).toBe(token);
+    expect(extractLinkingToken(`회원 연결을 위해 ${token} 코드를 사용합니다.`)).toBe(token);
+  });
+
   it("does not treat ordinary messages as linking tokens", () => {
     expect(extractLinkingToken("안녕하세요")).toBeNull();
     expect(extractLinkingToken("a".repeat(42))).toBeNull();

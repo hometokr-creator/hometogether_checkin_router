@@ -49,6 +49,7 @@ export async function POST(request: Request) {
         { token, providerUserKey, pepper },
         new PrismaLinkingTokenRepository(prisma),
       );
+      console.info("KAKAO_LINK_ATTEMPT", { outcome: result.outcome });
       if (result.outcome === "LINKED") return Response.json(kakaoSimpleText(LINKED_MESSAGE));
       if (result.outcome === "ALREADY_USED") return Response.json(kakaoSimpleText(USED_TOKEN_MESSAGE));
       if (result.outcome === "CONFLICT") return Response.json(kakaoSimpleText(CONFLICT_TOKEN_MESSAGE));
@@ -66,7 +67,10 @@ export async function POST(request: Request) {
       select: { id: true, householdId: true, memberId: true, contractCycleId: true },
     });
 
-    if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
+    if (!link) {
+      console.info("KAKAO_LINK_REQUIRED", { tokenDetected: false });
+      return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
+    }
 
     const { classification, source: classificationSource, modelRun } = await classifyInboundWithFallback(payload.data.userRequest.utterance);
     const grounding = await new PrismaContractClauseRepository(prisma).findGrounding(link.contractCycleId, classification.domain);

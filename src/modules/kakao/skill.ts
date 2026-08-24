@@ -30,11 +30,14 @@ export function getKakaoProviderUserKey(payload: KakaoSkillPayload) {
 }
 
 const LINKING_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const EMBEDDED_LINKING_TOKEN_PATTERN = /(?:^|[^A-Za-z0-9_-])([A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])/;
 
 export function extractLinkingToken(utterance: string) {
-  const normalized = utterance.trim();
+  const normalized = utterance.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
   if (LINKING_TOKEN_PATTERN.test(normalized)) return normalized;
 
   const prefixed = normalized.match(/^(?:연결\s*코드|연결\s*토큰)\s*[:：]?\s*(\S+)$/i)?.[1];
-  return prefixed && LINKING_TOKEN_PATTERN.test(prefixed) ? prefixed : null;
+  if (prefixed && LINKING_TOKEN_PATTERN.test(prefixed)) return prefixed;
+
+  return normalized.match(EMBEDDED_LINKING_TOKEN_PATTERN)?.[1] ?? null;
 }
