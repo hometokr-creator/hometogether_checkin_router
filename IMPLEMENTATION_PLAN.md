@@ -59,6 +59,26 @@
 - Real audit retention, encryption, and PII masking
 - Automated unit/integration/security test suite
 
+## Production transition: Kakao member linking
+
+The current operator panel uses explicit `memberId` and `contractCycleId` fields
+with demo identifiers so the v0 linking flow can be tested end to end. This is
+not the intended production UX.
+
+Before real-member operation:
+
+- Add authenticated operator access; do not ask operators to paste `INTERNAL_API_KEY`.
+- Search members by an approved operational identifier and select a result instead
+  of typing internal database IDs.
+- Resolve the member's active `contractCycleId` on the server and reject ambiguous,
+  ended, or cross-household matches.
+- Keep `memberId` and `contractCycleId` as durable internal identifiers.
+- Keep only the Kakao linking code short-lived (currently 15 minutes) and single-use.
+- After first verification, identify future messages by the stored hashed Kakao user
+  key so the member does not enter a member ID or linking code again.
+- Add operator authorization, member-search audit logs, rate limits, and code-revocation
+  controls before enabling the flow for real customer data.
+
 ## Safety defaults
 
 - `CHECKIN_AUTO_SEND=false`

@@ -7,6 +7,9 @@ type ApiError = { error?: { message?: string } };
 
 export function ChannelLinkTokenPanel() {
   const [internalApiKey, setInternalApiKey] = useState("");
+  // TODO(production-auth): Replace these demo IDs with an authenticated operator
+  // member search/selection flow. Member and active contract-cycle IDs must come
+  // from the Home Together membership/contract backend, never from operator input.
   const [memberId, setMemberId] = useState("codex-checkin-member-guest-001");
   const [contractCycleId, setContractCycleId] = useState("codex-checkin-cycle-001");
   const [issued, setIssued] = useState<IssuedToken | null>(null);
