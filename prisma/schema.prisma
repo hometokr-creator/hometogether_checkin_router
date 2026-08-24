@@ -41,11 +41,44 @@ enum LinkingTokenStatus {
   REVOKED
 }
 
+enum HouseholdEventSource {
+  INBOUND
+  CHECKIN
+  SYSTEM
+}
+
+enum IssueStatus {
+  REPORTED
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  FOLLOWUP
+  CLOSED
+  REOPENED
+}
+
+enum IssueRoute {
+  A
+  B
+  C
+}
+
+enum ActionTicketStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 model Household {
   id          String          @id
   members     Member[]
   cycles      ContractCycle[]
   links       ChannelIdentityLink[]
+  events      HouseholdEvent[]
+  issues      Issue[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@map("households")
@@ -58,6 +91,8 @@ model Member {
   role        MemberRole
   links       ChannelIdentityLink[]
   tokens      ChannelLinkingToken[]
+  events      HouseholdEvent[]
+  issues      Issue[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@index([householdId])
@@ -73,10 +108,76 @@ model ContractCycle {
   endsAt      DateTime?       @map("ends_at")
   links       ChannelIdentityLink[]
   tokens      ChannelLinkingToken[]
+  events      HouseholdEvent[]
+  issues      Issue[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@index([householdId, status])
   @@map("contract_cycles")
+}
+
+model HouseholdEvent {
+  id              String               @id @default(cuid())
+  householdId     String               @map("household_id")
+  contractCycleId String               @map("contract_cycle_id")
+  memberId        String?              @map("member_id")
+  issueId         String?              @map("issue_id")
+  source          HouseholdEventSource
+  eventType       String               @map("event_type")
+  occurredAt      DateTime             @map("occurred_at")
+  payload         Json
+  household       Household            @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle   ContractCycle        @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  member          Member?              @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  issue           Issue?               @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  @@index([householdId, occurredAt])
+  @@index([contractCycleId, occurredAt])
+  @@index([memberId, occurredAt])
+  @@index([issueId, occurredAt])
+  @@map("household_events")
+}
+
+model Issue {
+  id                 String            @id @default(cuid())
+  householdId        String            @map("household_id")
+  contractCycleId    String            @map("contract_cycle_id")
+  memberId           String?           @map("member_id")
+  status             IssueStatus       @default(REPORTED)
+  route              IssueRoute
+  intent             String
+  domain             String
+  severity           String
+  urgency            String
+  classification     Json
+  openedAt           DateTime          @map("opened_at")
+  closedAt           DateTime?         @map("closed_at")
+  household          Household         @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle      ContractCycle     @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  member             Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  events             HouseholdEvent[]
+  tickets            ActionTicket[]
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  @@index([householdId, status, openedAt])
+  @@index([contractCycleId, status])
+  @@index([memberId, openedAt])
+  @@map("issues")
+}
+
+model ActionTicket {
+  id          String             @id @default(cuid())
+  issueId     String             @map("issue_id")
+  status      ActionTicketStatus @default(OPEN)
+  queue       String
+  dueAt       DateTime           @map("due_at")
+  assignedTo String?            @map("assigned_to")
+  issue       Issue              @relation(fields: [issueId], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  @@index([issueId, status])
+  @@index([status, dueAt])
+  @@map("action_tickets")
 }
 
 model ChannelIdentityLink {

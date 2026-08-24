@@ -1,6 +1,9 @@
 import { getPrisma } from "@/infrastructure/db/client";
 import { PrismaLinkingTokenRepository } from "@/infrastructure/db/prisma-linking-token-repository";
+import { PrismaInboundRepository } from "@/infrastructure/db/prisma-inbound-repository";
+import { classifyInboundMessage } from "@/modules/classification/classify-inbound";
 import { consumeLinkingToken, hashSecret } from "@/modules/kakao/linking-token";
+import { decideRoute } from "@/modules/routing/decide-route";
 import {
   extractLinkingToken,
   getKakaoProviderUserKey,
@@ -60,21 +63,19 @@ export async function POST(request: Request) {
 
     if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
 
-    await prisma.auditLog.create({
-      data: {
-        event: "KAKAO_INBOUND_RECEIVED",
-        householdId: link.householdId,
-        entityType: "ChannelIdentityLink",
-        entityId: link.id,
-        payload: {
-          memberId: link.memberId,
-          contractCycleId: link.contractCycleId,
-          botId: payload.data.bot?.id ?? null,
-          blockId: payload.data.userRequest.block?.id ?? null,
-          utteranceLength: payload.data.userRequest.utterance.length,
-          delivery: "BLOCKED_HUMAN_REVIEW",
-        },
-      },
+    const classification = classifyInboundMessage(payload.data.userRequest.utterance);
+    const configuredThreshold = Number(process.env.CLASSIFICATION_CONFIDENCE_THRESHOLD ?? "0.8");
+    const threshold = Number.isFinite(configuredThreshold) && configuredThreshold >= 0 && configuredThreshold <= 1
+      ? configuredThreshold
+      : 0.8;
+    const decision = decideRoute(classification, "UNKNOWN", threshold);
+    await new PrismaInboundRepository(prisma).record({
+      householdId: link.householdId,
+      contractCycleId: link.contractCycleId,
+      memberId: link.memberId,
+      utterance: payload.data.userRequest.utterance,
+      classification,
+      decision,
     });
 
     return Response.json(kakaoSimpleText(HUMAN_REVIEW_MESSAGE));
