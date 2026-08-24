@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractLinkingToken,
   getKakaoProviderUserKey,
   kakaoSimpleText,
   kakaoSkillPayloadSchema,
@@ -42,5 +43,18 @@ describe("Kakao skill adapter", () => {
       version: "2.0",
       template: { outputs: [{ simpleText: { text: "접수했어요." } }] },
     });
+  });
+
+  it("recognizes a raw or labeled 43-character linking token", () => {
+    const token = "a".repeat(43);
+    expect(extractLinkingToken(token)).toBe(token);
+    expect(extractLinkingToken(`연결코드: ${token}`)).toBe(token);
+    expect(extractLinkingToken(`연결 토큰 ${token}`)).toBe(token);
+  });
+
+  it("does not treat ordinary messages as linking tokens", () => {
+    expect(extractLinkingToken("안녕하세요")).toBeNull();
+    expect(extractLinkingToken("a".repeat(42))).toBeNull();
+    expect(extractLinkingToken(`연결코드 ${"!".repeat(43)}`)).toBeNull();
   });
 });

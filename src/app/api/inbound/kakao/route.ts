@@ -1,6 +1,8 @@
 import { getPrisma } from "@/infrastructure/db/client";
-import { hashSecret } from "@/modules/kakao/linking-token";
+import { PrismaLinkingTokenRepository } from "@/infrastructure/db/prisma-linking-token-repository";
+import { consumeLinkingToken, hashSecret } from "@/modules/kakao/linking-token";
 import {
+  extractLinkingToken,
   getKakaoProviderUserKey,
   kakaoSimpleText,
   kakaoSkillPayloadSchema,
@@ -12,6 +14,14 @@ const HUMAN_REVIEW_MESSAGE =
   "말씀해 주신 내용을 접수했어요. 현재는 담당자 확인 후 안내드리고 있습니다.";
 const TEMPORARY_ERROR_MESSAGE =
   "지금 바로 확인할 수 있는 정보가 부족해 담당자에게 넘겼어요. 확인되는 대로 안내드릴게요.";
+const LINKED_MESSAGE =
+  "홈투게더 회원 연결이 완료됐어요. 이제 이 채팅에서 가구별 계약·생활 문의를 남길 수 있어요.";
+const INVALID_TOKEN_MESSAGE =
+  "연결 코드가 만료되었거나 올바르지 않아요. 담당자에게 새 연결 코드를 요청해 주세요.";
+const USED_TOKEN_MESSAGE =
+  "이미 사용된 연결 코드예요. 연결이 되지 않았다면 담당자에게 새 코드를 요청해 주세요.";
+const CONFLICT_TOKEN_MESSAGE =
+  "이 카카오 계정에는 다른 회원 연결 정보가 있어 자동으로 연결할 수 없어요. 담당자에게 확인을 요청해 주세요.";
 
 export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
@@ -22,8 +32,23 @@ export async function POST(request: Request) {
 
   try {
     const pepper = process.env.PROVIDER_USER_KEY_PEPPER ?? "";
-    const providerUserKeyHash = hashSecret(getKakaoProviderUserKey(payload.data), pepper);
-    const link = await getPrisma().channelIdentityLink.findFirst({
+    const providerUserKey = getKakaoProviderUserKey(payload.data);
+    const token = extractLinkingToken(payload.data.userRequest.utterance);
+    const prisma = getPrisma();
+
+    if (token) {
+      const result = await consumeLinkingToken(
+        { token, providerUserKey, pepper },
+        new PrismaLinkingTokenRepository(prisma),
+      );
+      if (result.outcome === "LINKED") return Response.json(kakaoSimpleText(LINKED_MESSAGE));
+      if (result.outcome === "ALREADY_USED") return Response.json(kakaoSimpleText(USED_TOKEN_MESSAGE));
+      if (result.outcome === "CONFLICT") return Response.json(kakaoSimpleText(CONFLICT_TOKEN_MESSAGE));
+      return Response.json(kakaoSimpleText(INVALID_TOKEN_MESSAGE));
+    }
+
+    const providerUserKeyHash = hashSecret(providerUserKey, pepper);
+    const link = await prisma.channelIdentityLink.findFirst({
       where: {
         provider: "KAKAO",
         providerUserKeyHash,
@@ -35,7 +60,7 @@ export async function POST(request: Request) {
 
     if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
 
-    await getPrisma().auditLog.create({
+    await prisma.auditLog.create({
       data: {
         event: "KAKAO_INBOUND_RECEIVED",
         householdId: link.householdId,
