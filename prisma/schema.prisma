@@ -74,6 +74,7 @@ enum ActionTicketStatus {
 
 model Household {
   id          String          @id
+  canonicalHomeId String?     @unique @db.Uuid @map("canonical_home_id")
   members     Member[]
   cycles      ContractCycle[]
   links       ChannelIdentityLink[]
@@ -86,6 +87,7 @@ model Household {
 
 model Member {
   id          String          @id
+  canonicalProfileId String?  @db.Uuid @map("canonical_profile_id")
   householdId String          @map("household_id")
   household   Household       @relation(fields: [householdId], references: [id], onDelete: Restrict)
   role        MemberRole
@@ -96,11 +98,13 @@ model Member {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@index([householdId])
+  @@unique([canonicalProfileId, householdId])
   @@map("members")
 }
 
 model ContractCycle {
   id          String          @id
+  canonicalMatchId String?    @unique @db.Uuid @map("canonical_match_id")
   householdId String          @map("household_id")
   household   Household       @relation(fields: [householdId], references: [id], onDelete: Restrict)
   status      ContractStatus
