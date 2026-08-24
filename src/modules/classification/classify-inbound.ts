@@ -18,6 +18,9 @@ export function classifyInboundMessage(utterance: string): ClassificationResult 
   if (includesAny(text, ["소음", "시끄", "tv 소리", "티비 소리", "잠을 못", "쿵쿵"])) {
     return { ...base, intent: "COMPLAINT", domain: "NOISE", severity: "S2", urgency: "SAME_DAY", direction: "G_TO_H", interventionPreference: "COORDINATE", distressSignal: includesAny(text, ["잠을 못", "힘들", "불편"]) ? "EXPLICIT" : "POSSIBLE", riskFlags: ["NONE"], confidence: 0.94 };
   }
+  if (includesAny(text, ["주방", "요리", "취사"])) {
+    return { ...base, intent: "QUESTION", domain: "KITCHEN", severity: "S1", urgency: "NORMAL", direction: "NOT_APPLICABLE", interventionPreference: "UNKNOWN", distressSignal: "NONE", riskFlags: ["NONE"], confidence: 0.95 };
+  }
   if (includesAny(text, ["계약", "퇴거", "해지", "보증금"])) {
     return { ...base, intent: "QUESTION", domain: "CONTRACT", severity: "S1", urgency: "NORMAL", direction: "NOT_APPLICABLE", interventionPreference: "UNKNOWN", distressSignal: "NONE", riskFlags: includesAny(text, ["보증금"]) ? ["MONEY"] : ["NONE"], confidence: 0.9 };
   }

@@ -72,6 +72,18 @@ enum ActionTicketStatus {
   CLOSED
 }
 
+enum ContractDocumentStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum ContractClauseStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
 model Household {
   id          String          @id
   canonicalHomeId String?     @unique @db.Uuid @map("canonical_home_id")
@@ -114,10 +126,44 @@ model ContractCycle {
   tokens      ChannelLinkingToken[]
   events      HouseholdEvent[]
   issues      Issue[]
+  contractDocuments ContractDocument[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@index([householdId, status])
   @@map("contract_cycles")
+}
+
+model ContractDocument {
+  id              String                 @id
+  contractCycleId String                 @map("contract_cycle_id")
+  title           String
+  version         Int
+  isSynthetic     Boolean                @default(true) @map("is_synthetic")
+  status          ContractDocumentStatus @default(DRAFT)
+  contractCycle   ContractCycle          @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  clauses         ContractClause[]
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  @@unique([contractCycleId, version])
+  @@index([contractCycleId, status])
+  @@map("demo_contracts")
+}
+
+model ContractClause {
+  id                 String               @id
+  contractDocumentId String               @map("contract_document_id")
+  domain             String
+  clauseNumber       String               @map("clause_number")
+  text               String
+  effectiveFrom      DateTime             @map("effective_from")
+  effectiveTo        DateTime?            @map("effective_to")
+  status             ContractClauseStatus @default(DRAFT)
+  contractDocument   ContractDocument     @relation(fields: [contractDocumentId], references: [id], onDelete: Restrict)
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  @@index([contractDocumentId, domain, status])
+  @@index([domain, status, effectiveFrom])
+  @@map("contract_clauses")
 }
 
 model HouseholdEvent {

@@ -1,6 +1,7 @@
 import { getPrisma } from "@/infrastructure/db/client";
 import { PrismaLinkingTokenRepository } from "@/infrastructure/db/prisma-linking-token-repository";
 import { PrismaInboundRepository } from "@/infrastructure/db/prisma-inbound-repository";
+import { PrismaContractClauseRepository } from "@/infrastructure/db/prisma-contract-clause-repository";
 import { classifyInboundMessage } from "@/modules/classification/classify-inbound";
 import { consumeLinkingToken, hashSecret } from "@/modules/kakao/linking-token";
 import { decideRoute } from "@/modules/routing/decide-route";
@@ -25,6 +26,10 @@ const USED_TOKEN_MESSAGE =
   "이미 사용된 연결 코드예요. 연결이 되지 않았다면 담당자에게 새 코드를 요청해 주세요.";
 const CONFLICT_TOKEN_MESSAGE =
   "이 카카오 계정에는 다른 회원 연결 정보가 있어 자동으로 연결할 수 없어요. 담당자에게 확인을 요청해 주세요.";
+
+function groundedAnswer(clause: { clauseNumber: string; text: string }) {
+  return `가상 계약서 ${clause.clauseNumber}에 따르면, ${clause.text}`;
+}
 
 export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
@@ -64,11 +69,12 @@ export async function POST(request: Request) {
     if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
 
     const classification = classifyInboundMessage(payload.data.userRequest.utterance);
+    const grounding = await new PrismaContractClauseRepository(prisma).findGrounding(link.contractCycleId, classification.domain);
     const configuredThreshold = Number(process.env.CLASSIFICATION_CONFIDENCE_THRESHOLD ?? "0.8");
     const threshold = Number.isFinite(configuredThreshold) && configuredThreshold >= 0 && configuredThreshold <= 1
       ? configuredThreshold
       : 0.8;
-    const decision = decideRoute(classification, "UNKNOWN", threshold);
+    const decision = decideRoute(classification, grounding.agreementStatus, threshold);
     await new PrismaInboundRepository(prisma).record({
       householdId: link.householdId,
       contractCycleId: link.contractCycleId,
@@ -76,9 +82,10 @@ export async function POST(request: Request) {
       utterance: payload.data.userRequest.utterance,
       classification,
       decision,
+      sourceClauseIds: grounding.clause ? [grounding.clause.id] : [],
     });
 
-    return Response.json(kakaoSimpleText(HUMAN_REVIEW_MESSAGE));
+    return Response.json(kakaoSimpleText(decision.route === "A" && grounding.clause ? groundedAnswer(grounding.clause) : HUMAN_REVIEW_MESSAGE));
   } catch (error) {
     console.error("KAKAO_INBOUND_FAILED", {
       error: error instanceof Error ? error.message : "UNKNOWN_ERROR",

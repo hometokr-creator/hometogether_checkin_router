@@ -13,6 +13,7 @@ export class PrismaInboundRepository {
     utterance: string;
     classification: ClassificationResult;
     decision: RoutingDecision;
+    sourceClauseIds?: string[];
     now?: Date;
   }) {
     const now = input.now ?? new Date();
@@ -40,7 +41,7 @@ export class PrismaInboundRepository {
           source: "INBOUND",
           eventType: "KAKAO_MESSAGE_RECEIVED",
           occurredAt: now,
-          payload: { utterance: input.utterance },
+          payload: { utterance: input.utterance, sourceClauseIds: input.sourceClauseIds ?? [] },
         },
       });
       const ticket = input.decision.route === "A" ? null : await tx.actionTicket.create({
@@ -56,7 +57,7 @@ export class PrismaInboundRepository {
           householdId: input.householdId,
           entityType: "Issue",
           entityId: issue.id,
-          payload: { eventId: event.id, ticketId: ticket?.id ?? null, route: input.decision.route, reasonCodes: input.decision.reasonCodes },
+          payload: { eventId: event.id, ticketId: ticket?.id ?? null, route: input.decision.route, reasonCodes: input.decision.reasonCodes, sourceClauseIds: input.sourceClauseIds ?? [] },
         },
       });
       return { issueId: issue.id, eventId: event.id, ticketId: ticket?.id ?? null };

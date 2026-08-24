@@ -12,6 +12,9 @@ describe("deterministic inbound classification", () => {
   it("fails closed for unrecognized messages", () => {
     expect(classifyInboundMessage("안녕하세요")).toMatchObject({ domain: "OTHER", confidence: 0.4 });
   });
+  it("recognizes a grounded kitchen-hours question", () => {
+    expect(classifyInboundMessage("주방은 몇 시까지 써도 돼요?")).toMatchObject({ intent: "QUESTION", domain: "KITCHEN", severity: "S1" });
+  });
   it("sets deterministic SLA deadlines", () => {
     const now = new Date("2026-08-24T00:00:00.000Z");
     expect(calculateTicketDueAt("IMMEDIATE", now).toISOString()).toBe("2026-08-24T01:00:00.000Z");
