@@ -68,7 +68,28 @@ export async function POST(request: Request) {
     });
 
     if (!link) {
-      console.info("KAKAO_LINK_REQUIRED", { tokenDetected: false });
+      const utterance = payload.data.userRequest.utterance;
+      const normalizedUtterance = utterance.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
+      const diagnostic = {
+        tokenDetected: false,
+        utteranceLength: utterance.length,
+        normalizedLength: normalizedUtterance.length,
+        containsLinkLabel: /연결\s*(?:코드|토큰)/i.test(normalizedUtterance),
+        containsTokenShapedText: /(?:^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/.test(normalizedUtterance),
+        blockId: payload.data.userRequest.block?.id ?? null,
+        actionId: payload.data.action?.id ?? null,
+        userType: payload.data.userRequest.user.type ?? null,
+        hasChannelUserKey: Boolean(payload.data.userRequest.user.properties?.plusfriendUserKey),
+      };
+      console.info("KAKAO_LINK_REQUIRED", diagnostic);
+      await prisma.auditLog.create({
+        data: {
+          event: "KAKAO_UNLINKED_DIAGNOSTIC",
+          entityType: "KakaoRequest",
+          entityId: payload.data.userRequest.block?.id ?? "UNRESOLVED",
+          payload: diagnostic,
+        },
+      });
       return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
     }
 
