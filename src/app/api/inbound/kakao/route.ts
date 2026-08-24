@@ -35,6 +35,9 @@ export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
   const payload = kakaoSkillPayloadSchema.safeParse(body);
   if (!payload.success) {
+    console.warn("KAKAO_PAYLOAD_REJECTED", {
+      issuePaths: payload.error.issues.map((issue) => issue.path.join(".")).slice(0, 10),
+    });
     return Response.json(kakaoSimpleText("요청 형식을 확인할 수 없어요. 잠시 후 다시 말씀해 주세요."));
   }
 

@@ -25,6 +25,22 @@ describe("Kakao skill adapter", () => {
     expect(kakaoSkillPayloadSchema.safeParse(payload).success).toBe(true);
   });
 
+  it("accepts nullable and non-string properties from a production channel", () => {
+    const productionPayload = {
+      ...payload,
+      userRequest: {
+        ...payload.userRequest,
+        user: {
+          id: "bot-user-key",
+          type: "botUserKey",
+          properties: { plusfriendUserKey: "channel-user-key", appUserId: null },
+        },
+      },
+      action: { id: "skill-1", name: null, clientExtra: null },
+    };
+    expect(kakaoSkillPayloadSchema.safeParse(productionPayload).success).toBe(true);
+  });
+
   it("prefers the channel user key when Kakao supplies it", () => {
     const parsed = kakaoSkillPayloadSchema.parse(payload);
     expect(getKakaoProviderUserKey(parsed)).toBe("channel-user-key");

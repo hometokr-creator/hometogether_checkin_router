@@ -5,14 +5,14 @@ export const kakaoSkillPayloadSchema = z.object({
     utterance: z.string().min(1),
     user: z.object({
       id: z.string().min(1),
-      type: z.string().optional(),
-      properties: z.record(z.string(), z.string()).optional(),
-    }),
-    block: z.object({ id: z.string().min(1), name: z.string().optional() }).optional(),
-    callbackUrl: z.url().optional(),
+      type: z.string().nullish(),
+      properties: z.record(z.string(), z.unknown()).nullish(),
+    }).passthrough(),
+    block: z.object({ id: z.string().min(1), name: z.string().nullish() }).passthrough().nullish(),
+    callbackUrl: z.url().nullish(),
   }),
-  bot: z.object({ id: z.string().min(1), name: z.string().optional() }).optional(),
-  action: z.object({ id: z.string().optional(), name: z.string().optional() }).passthrough().optional(),
+  bot: z.object({ id: z.string().min(1), name: z.string().nullish() }).passthrough().nullish(),
+  action: z.object({ id: z.string().nullish(), name: z.string().nullish() }).passthrough().nullish(),
 }).passthrough();
 
 export type KakaoSkillPayload = z.infer<typeof kakaoSkillPayloadSchema>;
@@ -25,8 +25,10 @@ export function kakaoSimpleText(text: string) {
 }
 
 export function getKakaoProviderUserKey(payload: KakaoSkillPayload) {
-  return payload.userRequest.user.properties?.plusfriendUserKey
-    ?? payload.userRequest.user.id;
+  const channelUserKey = payload.userRequest.user.properties?.plusfriendUserKey;
+  return typeof channelUserKey === "string" && channelUserKey.length > 0
+    ? channelUserKey
+    : payload.userRequest.user.id;
 }
 
 const LINKING_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
