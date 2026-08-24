@@ -2,7 +2,7 @@ import { getPrisma } from "@/infrastructure/db/client";
 import { PrismaLinkingTokenRepository } from "@/infrastructure/db/prisma-linking-token-repository";
 import { PrismaInboundRepository } from "@/infrastructure/db/prisma-inbound-repository";
 import { PrismaContractClauseRepository } from "@/infrastructure/db/prisma-contract-clause-repository";
-import { classifyInboundMessage } from "@/modules/classification/classify-inbound";
+import { classifyInboundWithFallback } from "@/modules/classification/classify-inbound-with-fallback";
 import { consumeLinkingToken, hashSecret } from "@/modules/kakao/linking-token";
 import { decideRoute } from "@/modules/routing/decide-route";
 import {
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     if (!link) return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
 
-    const classification = classifyInboundMessage(payload.data.userRequest.utterance);
+    const { classification, source: classificationSource } = await classifyInboundWithFallback(payload.data.userRequest.utterance);
     const grounding = await new PrismaContractClauseRepository(prisma).findGrounding(link.contractCycleId, classification.domain);
     const configuredThreshold = Number(process.env.CLASSIFICATION_CONFIDENCE_THRESHOLD ?? "0.8");
     const threshold = Number.isFinite(configuredThreshold) && configuredThreshold >= 0 && configuredThreshold <= 1
@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       classification,
       decision,
       sourceClauseIds: grounding.clause ? [grounding.clause.id] : [],
+      classificationSource,
     });
 
     return Response.json(kakaoSimpleText(decision.route === "A" && grounding.clause ? groundedAnswer(grounding.clause) : HUMAN_REVIEW_MESSAGE));

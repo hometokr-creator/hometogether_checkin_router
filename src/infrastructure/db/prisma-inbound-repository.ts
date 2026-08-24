@@ -14,6 +14,7 @@ export class PrismaInboundRepository {
     classification: ClassificationResult;
     decision: RoutingDecision;
     sourceClauseIds?: string[];
+    classificationSource?: "OPENAI" | "RULES" | "RULES_FALLBACK";
     now?: Date;
   }) {
     const now = input.now ?? new Date();
@@ -57,7 +58,7 @@ export class PrismaInboundRepository {
           householdId: input.householdId,
           entityType: "Issue",
           entityId: issue.id,
-          payload: { eventId: event.id, ticketId: ticket?.id ?? null, route: input.decision.route, reasonCodes: input.decision.reasonCodes, sourceClauseIds: input.sourceClauseIds ?? [] },
+          payload: { eventId: event.id, ticketId: ticket?.id ?? null, route: input.decision.route, reasonCodes: input.decision.reasonCodes, sourceClauseIds: input.sourceClauseIds ?? [], classificationSource: input.classificationSource ?? "RULES" },
         },
       });
       return { issueId: issue.id, eventId: event.id, ticketId: ticket?.id ?? null };
