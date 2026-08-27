@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { kakaoSkillPayloadSchema } from "./skill";
-import { isKakaoCheckinStart } from "./commands";
+import { isKakaoCheckinStart, isKakaoMainMenuStart } from "./commands";
 
 function payload(input: { utterance: string; blockName?: string; command?: string }) {
   return kakaoSkillPayloadSchema.parse({
@@ -11,6 +11,21 @@ function payload(input: { utterance: string; blockName?: string; command?: strin
 }
 
 describe("Kakao commands", () => {
+  it.each([
+    payload({ utterance: "안녕" }),
+    payload({ utterance: "안녕하세요!" }),
+    payload({ utterance: "처음으로" }),
+    payload({ utterance: "메뉴" }),
+    payload({ utterance: "아무 발화", blockName: "메인 메뉴" }),
+    payload({ utterance: "아무 발화", command: "SHOW_MAIN_MENU" }),
+  ])("detects a repeatable main-menu start", (input) => {
+    expect(isKakaoMainMenuStart(input)).toBe(true);
+  });
+
+  it("does not treat an ordinary inquiry as a main-menu start", () => {
+    expect(isKakaoMainMenuStart(payload({ utterance: "보일러가 고장났어요" }))).toBe(false);
+  });
+
   it.each([
     payload({ utterance: "정기 체크인 시작" }),
     payload({ utterance: "아무 발화", blockName: "정기 체크인" }),

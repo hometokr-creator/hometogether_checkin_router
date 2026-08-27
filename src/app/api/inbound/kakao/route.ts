@@ -18,7 +18,7 @@ import { safetyPrecheck } from "@/modules/orchestration/safety-precheck";
 import { kakaoFacilityTriageMessage } from "@/modules/facility/kakao-message";
 import { canUseKakaoDemoAlias } from "@/modules/kakao/demo-alias";
 import { kakaoLinkedMenuMessage } from "@/modules/kakao/menu-message";
-import { isKakaoCheckinStart } from "@/modules/kakao/commands";
+import { isKakaoCheckinStart, isKakaoMainMenuStart } from "@/modules/kakao/commands";
 import { kakaoCheckinFlowMessage } from "@/modules/checkin/kakao-flow-message";
 import {
   extractLinkingToken,
@@ -115,6 +115,10 @@ export async function POST(request: Request) {
         },
       });
       return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
+    }
+
+    if (isKakaoMainMenuStart(payload.data)) {
+      return Response.json(kakaoLinkedMenuMessage());
     }
 
     const facilityService = new PrismaFacilityTriageService(prisma);
