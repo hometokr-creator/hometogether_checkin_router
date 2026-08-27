@@ -1,10 +1,25 @@
 import { getPrisma } from "@/infrastructure/db/client";
 import { PrismaLinkingTokenRepository } from "@/infrastructure/db/prisma-linking-token-repository";
 import { PrismaInboundRepository } from "@/infrastructure/db/prisma-inbound-repository";
-import { PrismaContractClauseRepository } from "@/infrastructure/db/prisma-contract-clause-repository";
-import { classifyInboundWithFallback } from "@/modules/classification/classify-inbound-with-fallback";
+import { PrismaFacilityTriageService } from "@/infrastructure/db/prisma-facility-triage-service";
+import { PrismaKakaoDemoLinkService } from "@/infrastructure/db/prisma-kakao-demo-link-service";
+import { PrismaKakaoCheckinService } from "@/infrastructure/db/prisma-kakao-checkin-service";
+import { PrismaStructuredLookupRepository } from "@/infrastructure/db/prisma-structured-lookup-repository";
 import { consumeLinkingToken, hashSecret } from "@/modules/kakao/linking-token";
-import { decideRoute } from "@/modules/routing/decide-route";
+import { detectStructuredLookup } from "@/modules/knowledge/detect-structured-lookup";
+import { answerStructuredLookup } from "@/modules/knowledge/structured-lookup";
+import { classifyStructuredLookup } from "@/modules/knowledge/structured-lookup-classification";
+import { interpretConversationWithFallback } from "@/modules/orchestration/interpret-conversation-with-fallback";
+import { toLegacyClassification } from "@/modules/orchestration/legacy-adapter";
+import { buildActionResponse } from "@/modules/orchestration/response-copy";
+import { decideAction } from "@/modules/policy/decide-action";
+import { decideMessageAccess } from "@/modules/policy/message-access";
+import { safetyPrecheck } from "@/modules/orchestration/safety-precheck";
+import { kakaoFacilityTriageMessage } from "@/modules/facility/kakao-message";
+import { canUseKakaoDemoAlias } from "@/modules/kakao/demo-alias";
+import { kakaoLinkedMenuMessage } from "@/modules/kakao/menu-message";
+import { isKakaoCheckinStart } from "@/modules/kakao/commands";
+import { kakaoCheckinFlowMessage } from "@/modules/checkin/kakao-flow-message";
 import {
   extractLinkingToken,
   getKakaoProviderUserKey,
@@ -14,8 +29,6 @@ import {
 
 const LINK_REQUIRED_MESSAGE =
   "가구별 계약·생활규칙을 확인하려면 홈투게더 회원 연결이 필요해요. 담당자가 보내드린 연결 안내를 이용해 주세요.";
-const HUMAN_REVIEW_MESSAGE =
-  "말씀해 주신 내용을 접수했어요. 현재는 담당자 확인 후 안내드리고 있습니다.";
 const TEMPORARY_ERROR_MESSAGE =
   "지금 바로 확인할 수 있는 정보가 부족해 담당자에게 넘겼어요. 확인되는 대로 안내드릴게요.";
 const LINKED_MESSAGE =
@@ -26,10 +39,6 @@ const USED_TOKEN_MESSAGE =
   "이미 사용된 연결 코드예요. 연결이 되지 않았다면 담당자에게 새 코드를 요청해 주세요.";
 const CONFLICT_TOKEN_MESSAGE =
   "이 카카오 계정에는 다른 회원 연결 정보가 있어 자동으로 연결할 수 없어요. 담당자에게 확인을 요청해 주세요.";
-
-function groundedAnswer(clause: { clauseNumber: string; text: string }) {
-  return `가상 계약서 ${clause.clauseNumber}에 따르면, ${clause.text}`;
-}
 
 export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
@@ -60,6 +69,18 @@ export async function POST(request: Request) {
     }
 
     const providerUserKeyHash = hashSecret(providerUserKey, pepper);
+    const utterance = payload.data.userRequest.utterance;
+    if (canUseKakaoDemoAlias({
+      utterance,
+      botId: payload.data.bot?.id,
+      enabled: process.env.KAKAO_DEMO_MODE,
+      allowedBotIds: process.env.KAKAO_DEMO_BOT_IDS,
+    })) {
+      const result = await new PrismaKakaoDemoLinkService(prisma).link({ providerUserKeyHash, utterance });
+      if (result.outcome === "CONFLICT") return Response.json(kakaoSimpleText(CONFLICT_TOKEN_MESSAGE));
+      return Response.json(kakaoLinkedMenuMessage());
+    }
+
     const link = await prisma.channelIdentityLink.findFirst({
       where: {
         provider: "KAKAO",
@@ -96,26 +117,130 @@ export async function POST(request: Request) {
       return Response.json(kakaoSimpleText(LINK_REQUIRED_MESSAGE));
     }
 
-    const { classification, source: classificationSource, modelRun } = await classifyInboundWithFallback(payload.data.userRequest.utterance);
-    const grounding = await new PrismaContractClauseRepository(prisma).findGrounding(link.contractCycleId, classification.domain);
-    const configuredThreshold = Number(process.env.CLASSIFICATION_CONFIDENCE_THRESHOLD ?? "0.8");
-    const threshold = Number.isFinite(configuredThreshold) && configuredThreshold >= 0 && configuredThreshold <= 1
-      ? configuredThreshold
-      : 0.8;
-    const decision = decideRoute(classification, grounding.agreementStatus, threshold);
+    const facilityService = new PrismaFacilityTriageService(prisma);
+    const checkinService = new PrismaKakaoCheckinService(prisma);
+    const safety = safetyPrecheck(utterance);
+
+    if (!safety) {
+      const activeCheckin = await checkinService.consumeActiveReply({
+        householdId: link.householdId,
+        contractCycleId: link.contractCycleId,
+        memberId: link.memberId,
+        channelIdentityLinkId: link.id,
+        utterance,
+      });
+      if (activeCheckin) return Response.json(kakaoCheckinFlowMessage({ checkin: activeCheckin.checkin, correction: activeCheckin.correction }));
+
+      const activeFacilityFlow = await facilityService.consumeActiveReply({
+        householdId: link.householdId,
+        contractCycleId: link.contractCycleId,
+        memberId: link.memberId,
+        channelIdentityLinkId: link.id,
+        utterance,
+      });
+      if (activeFacilityFlow) return Response.json(kakaoFacilityTriageMessage(activeFacilityFlow.presentation));
+    }
+
+    if (!safety && isKakaoCheckinStart(payload.data)) {
+      try {
+        const started = await checkinService.start({
+          householdId: link.householdId,
+          contractCycleId: link.contractCycleId,
+          memberId: link.memberId,
+          channelIdentityLinkId: link.id,
+        });
+        return Response.json(kakaoCheckinFlowMessage({ checkin: started.checkin, prefix: "김하늘님, 입주 3일차 체크인을 시작할게요." }));
+      } catch (error) {
+        if (error instanceof Error && error.message === "ACTIVE_FLOW_CONFLICT") {
+          return Response.json(kakaoSimpleText("이미 진행 중인 확인 절차가 있어요. 먼저 현재 질문에 답해 주세요."));
+        }
+        if (error instanceof Error && error.message === "CHECKIN_SCHEDULE_NOT_FOUND") {
+          return Response.json(kakaoSimpleText("현재 진행할 수 있는 정기 체크인 일정이 없어요."));
+        }
+        throw error;
+      }
+    }
+
+    const structuredRequest = safety ? null : detectStructuredLookup(utterance);
+    if (structuredRequest) {
+      const structuredAnswer = await answerStructuredLookup(
+        structuredRequest,
+        { householdId: link.householdId, contractCycleId: link.contractCycleId },
+        new PrismaStructuredLookupRepository(prisma),
+      );
+      if (structuredAnswer) {
+        const classification = classifyStructuredLookup(structuredRequest);
+        await new PrismaInboundRepository(prisma).record({
+          householdId: link.householdId,
+          contractCycleId: link.contractCycleId,
+          memberId: link.memberId,
+          channelIdentityLinkId: link.id,
+          utterance,
+          classification,
+          decision: { route: "A", reasonCodes: ["STRUCTURED_LOOKUP"], immediateAlert: false },
+          sourceClauseIds: structuredAnswer.sourceRecordIds,
+          classificationSource: "RULES",
+        });
+        return Response.json(kakaoSimpleText(structuredAnswer.text));
+      }
+    }
+
+    const routed = safety
+      ? { interpretation: safety, source: "RULES" as const, modelRun: null }
+      : await interpretConversationWithFallback(utterance);
+    const { interpretation, source: classificationSource, modelRun } = routed;
+    const decision = decideAction(interpretation);
+    const classification = toLegacyClassification(interpretation);
+
+    if (decision.action === "START_FACILITY_TRIAGE") {
+      try {
+        const result = await facilityService.start({
+          householdId: link.householdId,
+          contractCycleId: link.contractCycleId,
+          memberId: link.memberId,
+          channelIdentityLinkId: link.id,
+          utterance,
+        });
+        if (modelRun) await prisma.modelRun.create({ data: modelRun });
+        return Response.json(kakaoFacilityTriageMessage(result.presentation));
+      } catch (error) {
+        if (error instanceof Error && error.message === "ACTIVE_FLOW_CONFLICT") {
+          return Response.json(kakaoSimpleText("이미 진행 중인 확인 절차가 있어요. 먼저 현재 질문에 답하거나 담당자에게 취소를 요청해 주세요."));
+        }
+        throw error;
+      }
+    }
+
+    if (decision.action === "EMERGENCY_GUIDANCE") {
+      await Promise.all([
+        facilityService.cancelActiveForEmergency({ householdId: link.householdId, contractCycleId: link.contractCycleId, memberId: link.memberId }),
+        checkinService.cancelActiveForEmergency({ householdId: link.householdId, contractCycleId: link.contractCycleId, memberId: link.memberId }),
+      ]);
+    }
+    const noIssueEventType = decision.action === "ANSWER"
+      ? "SMALL_TALK_ANSWERED"
+      : decision.action === "CLARIFY"
+        ? "CLARIFICATION_REQUESTED"
+        : decision.action === "RECORD"
+          ? "SCHEDULE_RECORD_REQUESTED"
+          : "LOOKUP_SERVED";
     await new PrismaInboundRepository(prisma).record({
       householdId: link.householdId,
       contractCycleId: link.contractCycleId,
       memberId: link.memberId,
-      utterance: payload.data.userRequest.utterance,
+      channelIdentityLinkId: link.id,
+      utterance,
       classification,
       decision,
-      sourceClauseIds: grounding.clause ? [grounding.clause.id] : [],
+      sourceClauseIds: [],
       classificationSource,
       modelRun,
+      openIssue: decision.openIssue,
+      noIssueEventType,
+      messageAccessLevel: decideMessageAccess(interpretation),
     });
 
-    return Response.json(kakaoSimpleText(decision.route === "A" && grounding.clause ? groundedAnswer(grounding.clause) : HUMAN_REVIEW_MESSAGE));
+    return Response.json(kakaoSimpleText(buildActionResponse(interpretation, decision)));
   } catch (error) {
     console.error("KAKAO_INBOUND_FAILED", {
       error: error instanceof Error ? error.message : "UNKNOWN_ERROR",

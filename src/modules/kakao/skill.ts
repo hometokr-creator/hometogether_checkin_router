@@ -12,7 +12,12 @@ export const kakaoSkillPayloadSchema = z.object({
     callbackUrl: z.url().nullish(),
   }),
   bot: z.object({ id: z.string().min(1), name: z.string().nullish() }).passthrough().nullish(),
-  action: z.object({ id: z.string().nullish(), name: z.string().nullish() }).passthrough().nullish(),
+  action: z.object({
+    id: z.string().nullish(),
+    name: z.string().nullish(),
+    params: z.record(z.string(), z.unknown()).nullish(),
+    clientExtra: z.record(z.string(), z.unknown()).nullish(),
+  }).passthrough().nullish(),
 }).passthrough();
 
 export type KakaoSkillPayload = z.infer<typeof kakaoSkillPayloadSchema>;

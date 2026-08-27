@@ -1,6 +1,6 @@
 # Home Together v0 implementation plan
 
-## Current implementation status (2026-08-23)
+## Current implementation status (2026-08-27)
 
 - [x] Next.js 16 + React 19 + TypeScript project conversion
 - [x] Operator console migrated to an App Router client component
@@ -17,13 +17,25 @@
 - [x] Transactional Prisma identity-link repository
 - [x] Authenticated channel-link token issuance Route Handler
 - [x] Public single-use channel-link verification Route Handler
+- [x] Conversation and ConversationMessage persistence separated from Issue
+- [x] Structured contract, payment, and household-rule lookup
+- [x] Reproducible HOMETO virtual-data seed
+- [x] D+3 check-in state machine, persistence, and `/demo` web flow
+- [x] Conversation meaning schema and OpenAI structured router
+- [x] Deterministic safety pre-check and server-side action policy
+- [x] Low-confidence clarification and model failure fallback
+- [x] C-level storage policy for S2/S3 conversation text
+- [x] S1 facility safety gate, bounded self-help, and resolution flow
+- [x] Facility unresolved-to-issue and contextual-danger-to-S3 transitions
+- [x] Same-facility 30-day recurrence grouping and S1-to-S2 promotion
+- [x] Kakao test-bot-only HOMETO identity linking behind a bot ID allowlist
+- [x] Existing Kakao regular-checkin block wired to persistent Checkin Flow
 - [x] lint, typecheck, unit tests, and production build
-- [ ] Apply initial migration to a real PostgreSQL database (DATABASE_URL required)
-- [ ] Virtual-data seed (blocked by missing virtual data bundle)
-- [ ] Authentication and household-scoped persistence
-- [ ] Real Kakao and LLM providers
+- [ ] Apply migrations and virtual-data seed to an explicitly approved demo PostgreSQL database
+- [ ] Replace development operator API-key entry with authenticated operator roles
+- [ ] Verify real Kakao callback/outbox delivery and live LLM credentials
 
-## Repository audit
+## Initial repository audit (historical baseline)
 
 - Framework/language: framework-free HTML, CSS, and browser JavaScript
 - Package manager: none

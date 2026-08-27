@@ -90,6 +90,92 @@ enum ModelRunStatus {
   FALLBACK
 }
 
+enum ConversationChannel {
+  KAKAO
+  WEB_DEMO
+}
+
+enum ConversationStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageKind {
+  TEXT
+  QUICK_REPLY
+  SYSTEM
+  STATUS_CARD
+}
+
+enum InformationAccessLevel {
+  A
+  B
+  C
+}
+
+enum StructuredRecordStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum PaymentScheduleStatus {
+  SCHEDULED
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+enum KnowledgeKind {
+  RULE
+  ROOM
+  INVENTORY
+  CONTACT_POLICY
+}
+
+enum FlowType {
+  CHECKIN
+  ISSUE_INTAKE
+  FACILITY_TRIAGE
+  MOVE_OUT
+  EMERGENCY_CONFIRMATION
+}
+
+enum FlowStatus {
+  IN_PROGRESS
+  WAITING_USER
+  WAITING_OPERATOR
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum CheckinStage {
+  D3
+  W2
+  MONTHLY
+  EXIT_D30
+}
+
+enum CheckinScheduleStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CheckinDisposition {
+  OK
+  NEEDS_CLASSIFICATION
+  NEEDS_REVIEW
+  EMERGENCY
+}
+
 model Household {
   id          String          @id
   canonicalHomeId String?     @unique @db.Uuid @map("canonical_home_id")
@@ -98,6 +184,10 @@ model Household {
   links       ChannelIdentityLink[]
   events      HouseholdEvent[]
   issues      Issue[]
+  conversations Conversation[]
+  knowledgeRecords KnowledgeRecord[]
+  flows       FlowInstance[]
+  checkinSchedules CheckinSchedule[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@map("households")
@@ -113,6 +203,10 @@ model Member {
   tokens      ChannelLinkingToken[]
   events      HouseholdEvent[]
   issues      Issue[]
+  conversations Conversation[]
+  flows       FlowInstance[]
+  checkinSchedules CheckinSchedule[]
+  checkinResponses CheckinResponse[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   @@index([householdId])
@@ -132,6 +226,12 @@ model ContractCycle {
   tokens      ChannelLinkingToken[]
   events      HouseholdEvent[]
   issues      Issue[]
+  conversations Conversation[]
+  financialTerms ContractFinancialTerms[]
+  paymentSchedules PaymentSchedule[]
+  knowledgeRecords KnowledgeRecord[]
+  flows       FlowInstance[]
+  checkinSchedules CheckinSchedule[]
   contractDocuments ContractDocument[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
@@ -199,6 +299,7 @@ model Issue {
   householdId        String            @map("household_id")
   contractCycleId    String            @map("contract_cycle_id")
   memberId           String?           @map("member_id")
+  reporterMessageId  String?           @unique @map("reporter_message_id")
   status             IssueStatus       @default(REPORTED)
   route              IssueRoute
   intent             String
@@ -211,6 +312,7 @@ model Issue {
   household          Household         @relation(fields: [householdId], references: [id], onDelete: Restrict)
   contractCycle      ContractCycle     @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
   member             Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  reporterMessage    ConversationMessage? @relation("IssueReporterMessage", fields: [reporterMessageId], references: [id], onDelete: SetNull)
   events             HouseholdEvent[]
   tickets            ActionTicket[]
   modelRuns          ModelRun[]
@@ -277,12 +379,201 @@ model ChannelIdentityLink {
   member             Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
   household          Household           @relation(fields: [householdId], references: [id], onDelete: Restrict)
   contractCycle      ContractCycle       @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  conversation       Conversation?
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
   @@unique([provider, providerUserKeyHash, contractCycleId])
   @@index([memberId, status])
   @@index([householdId, contractCycleId, status])
   @@map("channel_identity_links")
+}
+
+model Conversation {
+  id                    String               @id @default(cuid())
+  householdId           String               @map("household_id")
+  contractCycleId       String               @map("contract_cycle_id")
+  memberId              String               @map("member_id")
+  channelIdentityLinkId String?              @unique @map("channel_identity_link_id")
+  channel               ConversationChannel
+  status                ConversationStatus   @default(ACTIVE)
+  lastMessageAt         DateTime              @map("last_message_at")
+  household             Household            @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle         ContractCycle        @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  member                Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  channelIdentityLink   ChannelIdentityLink? @relation(fields: [channelIdentityLinkId], references: [id], onDelete: SetNull)
+  messages              ConversationMessage[]
+  flows                 FlowInstance[]
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+  @@index([householdId, lastMessageAt])
+  @@index([contractCycleId, status])
+  @@index([memberId, lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id                String                 @id @default(cuid())
+  conversationId    String                 @map("conversation_id")
+  direction         MessageDirection
+  kind              MessageKind            @default(TEXT)
+  body              String
+  accessLevel       InformationAccessLevel @default(A) @map("access_level")
+  providerMessageId String?                @map("provider_message_id")
+  replyToMessageId  String?                @map("reply_to_message_id")
+  conversation      Conversation           @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  replyToMessage    ConversationMessage?   @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies           ConversationMessage[]  @relation("MessageReplies")
+  reportedIssue     Issue?                 @relation("IssueReporterMessage")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  @@unique([conversationId, providerMessageId])
+  @@index([conversationId, createdAt])
+  @@index([replyToMessageId])
+  @@map("conversation_messages")
+}
+
+model ContractFinancialTerms {
+  id               String                 @id
+  contractCycleId  String                 @map("contract_cycle_id")
+  depositKrw       Int                    @map("deposit_krw")
+  monthlyRentKrw   Int                    @map("monthly_rent_krw")
+  serviceFeeKrw    Int                    @map("service_fee_krw")
+  utilityFixedKrw  Int                    @map("utility_fixed_krw")
+  regularTotalKrw  Int                    @map("regular_total_krw")
+  paymentDay       Int                    @map("payment_day")
+  status           StructuredRecordStatus @default(DRAFT)
+  effectiveFrom    DateTime               @db.Date @map("effective_from")
+  effectiveTo      DateTime?              @db.Date @map("effective_to")
+  sourceDocumentKey String                @map("source_document_key")
+  sourceLocator    String                 @map("source_locator")
+  contractCycle    ContractCycle          @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  @@unique([contractCycleId, effectiveFrom])
+  @@index([contractCycleId, status, effectiveFrom])
+  @@map("contract_financial_terms")
+}
+
+model PaymentSchedule {
+  id              String                @id
+  contractCycleId String                @map("contract_cycle_id")
+  periodStart     DateTime              @db.Date @map("period_start")
+  periodEnd       DateTime              @db.Date @map("period_end")
+  dueDate         DateTime              @db.Date @map("due_date")
+  amountKrw       Int                   @map("amount_krw")
+  status          PaymentScheduleStatus @default(SCHEDULED)
+  paidAt          DateTime?             @db.Timestamptz(3) @map("paid_at")
+  contractCycle   ContractCycle         @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  @@unique([contractCycleId, dueDate])
+  @@index([contractCycleId, status, dueDate])
+  @@map("payment_schedules")
+}
+
+model KnowledgeRecord {
+  id                String                 @id
+  householdId       String                 @map("household_id")
+  contractCycleId   String                 @map("contract_cycle_id")
+  kind              KnowledgeKind
+  category          String
+  key               String
+  structuredValue   Json                   @map("structured_value")
+  answerText        String                 @map("answer_text")
+  accessLevel       InformationAccessLevel @default(A) @map("access_level")
+  status            StructuredRecordStatus @default(DRAFT)
+  effectiveFrom     DateTime               @db.Date @map("effective_from")
+  effectiveTo       DateTime?              @db.Date @map("effective_to")
+  sourceDocumentKey String                 @map("source_document_key")
+  sourceLocator     String                 @map("source_locator")
+  household         Household              @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle     ContractCycle          @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  @@unique([contractCycleId, category, key, effectiveFrom])
+  @@index([contractCycleId, kind, category, status, effectiveFrom])
+  @@index([householdId, status, effectiveFrom])
+  @@map("knowledge_records")
+}
+
+model CheckinTemplate {
+  id          String                 @id
+  key         String
+  version     Int
+  title       String
+  questions  Json
+  status      StructuredRecordStatus @default(DRAFT)
+  schedules   CheckinSchedule[]
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+  @@unique([key, version])
+  @@index([key, status, version])
+  @@map("checkin_templates")
+}
+
+model CheckinSchedule {
+  id              String                @id
+  householdId     String                @map("household_id")
+  contractCycleId String                @map("contract_cycle_id")
+  memberId        String                @map("member_id")
+  templateId      String                @map("template_id")
+  stage           CheckinStage
+  scheduledFor    DateTime              @db.Timestamptz(3) @map("scheduled_for")
+  status          CheckinScheduleStatus @default(SCHEDULED)
+  isDemo          Boolean               @default(false) @map("is_demo")
+  household       Household             @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle   ContractCycle         @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  member          Member                @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  template        CheckinTemplate       @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  flow            FlowInstance?
+  response        CheckinResponse?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  @@unique([contractCycleId, memberId, stage, scheduledFor])
+  @@index([memberId, status, scheduledFor])
+  @@index([householdId, status, scheduledFor])
+  @@index([templateId])
+  @@map("checkin_schedules")
+}
+
+model FlowInstance {
+  id                String         @id @default(cuid())
+  householdId       String         @map("household_id")
+  contractCycleId   String         @map("contract_cycle_id")
+  memberId          String         @map("member_id")
+  conversationId    String?        @map("conversation_id")
+  checkinScheduleId String?        @unique @map("checkin_schedule_id")
+  type              FlowType
+  status            FlowStatus     @default(IN_PROGRESS)
+  stepKey           String         @map("step_key")
+  context           Json
+  version           Int            @default(1)
+  expiresAt         DateTime       @db.Timestamptz(3) @map("expires_at")
+  household         Household      @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  contractCycle     ContractCycle  @relation(fields: [contractCycleId], references: [id], onDelete: Restrict)
+  member            Member         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  conversation      Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  checkinSchedule   CheckinSchedule? @relation(fields: [checkinScheduleId], references: [id], onDelete: SetNull)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  @@index([contractCycleId, memberId, status])
+  @@index([conversationId, status])
+  @@index([status, expiresAt])
+  @@map("flow_instances")
+}
+
+model CheckinResponse {
+  id                 String             @id @default(cuid())
+  checkinScheduleId  String             @unique @map("checkin_schedule_id")
+  respondentMemberId String             @map("respondent_member_id")
+  answers            Json
+  freeText           String?            @map("free_text")
+  disposition        CheckinDisposition
+  completedAt        DateTime           @db.Timestamptz(3) @map("completed_at")
+  checkinSchedule    CheckinSchedule    @relation(fields: [checkinScheduleId], references: [id], onDelete: Restrict)
+  respondentMember   Member             @relation(fields: [respondentMemberId], references: [id], onDelete: Restrict)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  @@index([respondentMemberId, completedAt])
+  @@map("checkin_responses")
 }
 
 model ChannelLinkingToken {
