@@ -17,7 +17,7 @@ import { decideMessageAccess } from "@/modules/policy/message-access";
 import { safetyPrecheck } from "@/modules/orchestration/safety-precheck";
 import { kakaoFacilityTriageMessage } from "@/modules/facility/kakao-message";
 import { canUseKakaoDemoAlias } from "@/modules/kakao/demo-alias";
-import { kakaoLinkedMenuMessage } from "@/modules/kakao/menu-message";
+import { kakaoLinkedMenuMessage, kakaoSelectedMenuMessage } from "@/modules/kakao/menu-message";
 import { isKakaoCheckinStart, isKakaoMainMenuStart } from "@/modules/kakao/commands";
 import { kakaoCheckinFlowMessage } from "@/modules/checkin/kakao-flow-message";
 import {
@@ -120,6 +120,9 @@ export async function POST(request: Request) {
     if (isKakaoMainMenuStart(payload.data)) {
       return Response.json(kakaoLinkedMenuMessage());
     }
+
+    const selectedMenu = kakaoSelectedMenuMessage(utterance);
+    if (selectedMenu) return Response.json(selectedMenu);
 
     const facilityService = new PrismaFacilityTriageService(prisma);
     const checkinService = new PrismaKakaoCheckinService(prisma);
